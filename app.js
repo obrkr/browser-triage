@@ -17,6 +17,10 @@ const state = {
   iocSet: new Set(),
   keywordList: [],
   flaggedOnly: false,
+  pageSize: 100,
+  page: { history: 1, downloads: 1 },
+  defangUrls: true,
+  visitIndex: new Map(),
 };
 
 let SQLPromise = null;
@@ -330,12 +334,12 @@ function extractChromiumHistory(db, sourceName, fileId) {
   let count = 0;
   try {
     const res = db.exec(`
-      SELECT visits.visit_time, urls.url, urls.title, urls.visit_count, visits.transition
+      SELECT visits.id, visits.from_visit, visits.visit_time, urls.url, urls.title, urls.visit_count, visits.transition
       FROM visits JOIN urls ON visits.url = urls.id
     `);
     if (res.length) {
       for (const row of res[0].values) {
-        const [visitTimeRaw, url, title, visitCount, transitionRaw] = row;
+        const [visitId, fromVisit, visitTimeRaw, url, title, visitCount, transitionRaw] = row;
         state.history.push({
           id: `${fileId}-h${count}`,
           source: sourceName,
@@ -345,6 +349,8 @@ function extractChromiumHistory(db, sourceName, fileId) {
           url: url || '',
           visitCount: visitCount || 0,
           transition: chromiumTransitionLabel(transitionRaw),
+          chainKey: `${fileId}:${visitId}`,
+          chainFromKey: fromVisit ? `${fileId}:${fromVisit}` : null,
         });
         count++;
       }
@@ -437,12 +443,12 @@ function extractFirefoxHistory(db, sourceName, fileId) {
   let count = 0;
   try {
     const res = db.exec(`
-      SELECT h.visit_date, p.url, p.title, p.visit_count, h.visit_type
+      SELECT h.id, h.from_visit, h.visit_date, p.url, p.title, p.visit_count, h.visit_type
       FROM moz_historyvisits h JOIN moz_places p ON h.place_id = p.id
     `);
     if (res.length) {
       for (const row of res[0].values) {
-        const [visitDateRaw, url, title, visitCount, visitType] = row;
+        const [visitId, fromVisit, visitDateRaw, url, title, visitCount, visitType] = row;
         state.history.push({
           id: `${fileId}-h${count}`,
           source: sourceName,
@@ -452,6 +458,8 @@ function extractFirefoxHistory(db, sourceName, fileId) {
           url: url || '',
           visitCount: visitCount || 0,
           transition: firefoxTransitionLabel(visitType),
+          chainKey: `${fileId}:${visitId}`,
+          chainFromKey: fromVisit ? `${fileId}:${fromVisit}` : null,
         });
         count++;
       }
@@ -916,6 +924,20 @@ function truncate(s, n) {
   const str = String(s);
   return str.length > n ? str.slice(0, n) + '…' : str;
 }
+
+// Defangs a URL for safe display/copy into reports, chat, tickets, etc. —
+// standard DFIR convention so the string can't be auto-linkified, clicked,
+// or parsed by security tooling that scans for live IOCs.
+function defangUrl(url) {
+  if (!url) return url;
+  return String(url)
+    .replace(/^(https?):\/\//i, (m, scheme) => `${scheme.toLowerCase() === 'https' ? 'hxxps' : 'hxxp'}[://]`)
+    .replace(/^ftp:\/\//i, 'fxp[://]')
+    .replace(/\./g, '[.]');
+}
+function displayUrl(url) {
+  return state.defangUrls ? defangUrl(url) : url;
+}
 function formatBytes(n) {
   if (!n) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -976,6 +998,9 @@ function applyFiltersAndRender() {
     state.filtered.downloads = state.filtered.downloads.filter((r) => r.flagCount > 0);
   }
 
+  state.page.history = 1;
+  state.page.downloads = 1;
+
   sortData('history');
   sortData('downloads');
   renderHistory();
@@ -998,24 +1023,43 @@ function sortData(tab) {
   });
 }
 
-const RENDER_CAP = 5000;
-
 function renderFlagsCell(flags) {
   if (!flags || !flags.length) return '';
   return flags.map((f) => `<span class="badge flag-${f.severity}" title="${escAttr(f.label)}">${esc(f.label)}</span>`).join('');
 }
 
+function pageBounds(tab) {
+  const rows = state.filtered[tab];
+  const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+  if (state.page[tab] > totalPages) state.page[tab] = totalPages;
+  if (state.page[tab] < 1) state.page[tab] = 1;
+  const start = (state.page[tab] - 1) * state.pageSize;
+  return { rows, totalPages, start, shown: rows.slice(start, start + state.pageSize) };
+}
+
+function updatePaginationUI(tab, totalPages) {
+  const page = state.page[tab];
+  document.getElementById(`${tab}PageIndicator`).textContent = `Page ${page} of ${totalPages}`;
+  document.getElementById(`${tab}PrevBtn`).disabled = page <= 1;
+  document.getElementById(`${tab}NextBtn`).disabled = page >= totalPages;
+}
+
+function goToPage(tab, page) {
+  state.page[tab] = page;
+  if (tab === 'history') renderHistory();
+  else renderDownloads();
+}
+
 function renderHistory() {
   const tbody = document.getElementById('historyBody');
-  const rows = state.filtered.history;
-  const shown = rows.slice(0, RENDER_CAP);
+  const { rows, totalPages, start, shown } = pageBounds('history');
   const frag = document.createDocumentFragment();
   for (const r of shown) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="time-cell">${fmtTime(r.visitTime)}</td>
       <td title="${escAttr(r.title)}">${esc(truncate(r.title, 80)) || '—'}</td>
-      <td class="url-cell mono" title="${escAttr(r.url)}">${esc(r.url)}</td>
+      <td class="url-cell mono url-clickable" title="Click to view navigation chain" data-record-id="${escAttr(r.id)}">${esc(displayUrl(r.url))}</td>
       <td>${r.visitCount}</td>
       <td>${esc(r.transition)}</td>
       <td class="flags-cell">${renderFlagsCell(r.flags)}</td>
@@ -1026,15 +1070,16 @@ function renderHistory() {
   }
   tbody.innerHTML = '';
   tbody.appendChild(frag);
-  let msg = `Showing ${shown.length.toLocaleString()} of ${rows.length.toLocaleString()} filtered rows (${state.history.length.toLocaleString()} total loaded).`;
-  if (rows.length > RENDER_CAP) msg += ` Display capped at ${RENDER_CAP.toLocaleString()} rows — narrow the filter or time range to see more.`;
+  const msg = rows.length
+    ? `Showing ${(start + 1).toLocaleString()}-${(start + shown.length).toLocaleString()} of ${rows.length.toLocaleString()} filtered rows (${state.history.length.toLocaleString()} total loaded).`
+    : `No history rows match the current filters (${state.history.length.toLocaleString()} total loaded).`;
   document.getElementById('historyCount').textContent = msg;
+  updatePaginationUI('history', totalPages);
 }
 
 function renderDownloads() {
   const tbody = document.getElementById('downloadsBody');
-  const rows = state.filtered.downloads;
-  const shown = rows.slice(0, RENDER_CAP);
+  const { rows, totalPages, start, shown } = pageBounds('downloads');
   const frag = document.createDocumentFragment();
   for (const r of shown) {
     const tr = document.createElement('tr');
@@ -1046,8 +1091,8 @@ function renderDownloads() {
       <td class="time-cell">${fmtTime(r.endTime)}</td>
       <td title="${escAttr(r.fileName)}">${esc(r.fileName) || '—'}</td>
       <td class="mono" title="${escAttr(r.targetPath)}">${esc(truncate(r.targetPath, 60))}</td>
-      <td class="mono" title="${escAttr(r.url)}">${esc(truncate(r.url, 60))}</td>
-      <td class="mono" title="${escAttr(r.referrer)}">${esc(truncate(r.referrer, 50))}</td>
+      <td class="mono" title="${escAttr(displayUrl(r.url))}">${esc(truncate(displayUrl(r.url), 60))}</td>
+      <td class="mono" title="${escAttr(displayUrl(r.referrer))}">${esc(truncate(displayUrl(r.referrer), 50))}</td>
       <td>${formatBytes(r.totalBytes)}</td>
       <td class="${stateClass}">${esc(r.state)}</td>
       <td>${esc(r.mimeType)}</td>
@@ -1062,8 +1107,10 @@ function renderDownloads() {
   }
   tbody.innerHTML = '';
   tbody.appendChild(frag);
-  document.getElementById('downloadsCount').textContent =
-    `Showing ${shown.length.toLocaleString()} of ${rows.length.toLocaleString()} filtered rows (${state.downloads.length.toLocaleString()} total loaded).`;
+  document.getElementById('downloadsCount').textContent = rows.length
+    ? `Showing ${(start + 1).toLocaleString()}-${(start + shown.length).toLocaleString()} of ${rows.length.toLocaleString()} filtered rows (${state.downloads.length.toLocaleString()} total loaded).`
+    : `No download rows match the current filters (${state.downloads.length.toLocaleString()} total loaded).`;
+  updatePaginationUI('downloads', totalPages);
 }
 
 function statCard(label, value, extraClass) {
@@ -1114,6 +1161,110 @@ function renderSummary() {
     `;
     filesBody.appendChild(tr);
   }
+
+  renderHistogram();
+}
+
+/* ---------------------------------------------------------------------
+ * Activity-over-time histogram (Summary tab) — dependency-free inline
+ * SVG, bucketed adaptively based on the span of the currently filtered
+ * data, showing history visits vs. downloads per bucket.
+ * ------------------------------------------------------------------- */
+const HISTOGRAM_GRANULARITIES = [
+  { label: 'hour', ms: 3600e3 },
+  { label: '6 hours', ms: 6 * 3600e3 },
+  { label: 'day', ms: 86400e3 },
+  { label: 'week', ms: 7 * 86400e3 },
+  { label: 'month', ms: 30 * 86400e3 },
+];
+
+function computeHistogramBuckets() {
+  const events = [];
+  for (const r of state.filtered.history) if (r.visitTime !== null && r.visitTime !== undefined && !isNaN(r.visitTime)) events.push({ t: r.visitTime, type: 'history' });
+  for (const r of state.filtered.downloads) if (r.startTime !== null && r.startTime !== undefined && !isNaN(r.startTime)) events.push({ t: r.startTime, type: 'downloads' });
+  if (!events.length) return null;
+
+  const minT = Math.min(...events.map((e) => e.t));
+  const maxT = Math.max(...events.map((e) => e.t));
+  const span = Math.max(1, maxT - minT);
+
+  let gran = HISTOGRAM_GRANULARITIES[HISTOGRAM_GRANULARITIES.length - 1];
+  for (const g of HISTOGRAM_GRANULARITIES) {
+    if (span / g.ms <= 60) { gran = g; break; }
+  }
+
+  const bucketStart = Math.floor(minT / gran.ms) * gran.ms;
+  const bucketCount = Math.floor((maxT - bucketStart) / gran.ms) + 1;
+  const buckets = Array.from({ length: bucketCount }, (_, i) => ({ t: bucketStart + i * gran.ms, history: 0, downloads: 0 }));
+
+  for (const e of events) {
+    const idx = Math.floor((e.t - bucketStart) / gran.ms);
+    if (buckets[idx]) buckets[idx][e.type]++;
+  }
+
+  return { buckets, granularity: gran };
+}
+
+function fmtBucketLabel(t, granLabel) {
+  const d = new Date(t);
+  const tz = state.displayTz || 'UTC';
+  const opts = { timeZone: tz };
+  if (granLabel === 'hour' || granLabel === '6 hours') Object.assign(opts, { month: 'short', day: 'numeric', hour: '2-digit', hour12: false });
+  else if (granLabel === 'day' || granLabel === 'week') Object.assign(opts, { month: 'short', day: 'numeric' });
+  else Object.assign(opts, { year: 'numeric', month: 'short' });
+  try { return new Intl.DateTimeFormat('en-US', opts).format(d); } catch (e) { return d.toISOString(); }
+}
+
+function renderHistogram() {
+  const container = document.getElementById('histogramContainer');
+  const data = computeHistogramBuckets();
+  if (!data) {
+    container.innerHTML = '<p class="hint">No timestamped activity to chart yet.</p>';
+    return;
+  }
+  const { buckets, granularity } = data;
+  const barW = 14;
+  const gap = 3;
+  const chartH = 140;
+  const axisH = 20;
+  const margin = 28;
+  const plotW = Math.max(buckets.length * (barW + gap), 300);
+  const svgW = plotW + margin * 2;
+  const maxTotal = Math.max(1, ...buckets.map((b) => b.history + b.downloads));
+
+  let bars = '';
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / 10));
+  buckets.forEach((b, i) => {
+    const total = b.history + b.downloads;
+    const hHeight = total ? (b.history / maxTotal) * chartH : 0;
+    const dHeight = total ? (b.downloads / maxTotal) * chartH : 0;
+    const x = margin + i * (barW + gap);
+    const histY = chartH - hHeight;
+    const dlY = histY - dHeight;
+    const label = fmtBucketLabel(b.t, granularity.label);
+    bars += `<g><title>${esc(label)}: ${b.history} history, ${b.downloads} downloads</title>`;
+    if (b.history) bars += `<rect x="${x}" y="${histY}" width="${barW}" height="${Math.max(hHeight, 1)}" fill="var(--accent)" rx="1"></rect>`;
+    if (b.downloads) bars += `<rect x="${x}" y="${dlY}" width="${barW}" height="${Math.max(dHeight, 1)}" fill="var(--amber)" rx="1"></rect>`;
+    if (!total) bars += `<rect x="${x}" y="${chartH - 1}" width="${barW}" height="1" fill="var(--border)"></rect>`;
+    bars += '</g>';
+    if (i % labelEvery === 0) {
+      bars += `<text x="${x + barW / 2}" y="${chartH + 14}" font-size="10" text-anchor="middle" fill="var(--text-faint)">${esc(label)}</text>`;
+    }
+  });
+
+  container.innerHTML = `
+    <div class="histogram-legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span>History visits</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>Downloads</span>
+      <span class="hint">Bucketed by ${esc(granularity.label)} &middot; ${buckets.length.toLocaleString()} bucket${buckets.length === 1 ? '' : 's'}</span>
+    </div>
+    <div class="histogram-scroll">
+      <svg width="${svgW}" height="${chartH + axisH + 20}" viewBox="0 0 ${svgW} ${chartH + axisH + 20}">
+        <line x1="${margin}" y1="${chartH}" x2="${svgW - margin}" y2="${chartH}" stroke="var(--border)" stroke-width="1"></line>
+        ${bars}
+      </svg>
+    </div>
+  `;
 }
 
 function updateHeaderStatus() {
@@ -1144,7 +1295,69 @@ function onDataChanged() {
   document.getElementById('mainContent').hidden = false;
   updateHeaderStatus();
   populateSourceFilter();
+  buildVisitIndex();
   applyFiltersAndRender();
+}
+
+/* ---------------------------------------------------------------------
+ * Navigation chain — reconstructs "how did the user get here" using each
+ * browser's referring-visit link (Chromium visits.from_visit / Firefox
+ * moz_historyvisits.from_visit). Not available for Safari (no such chain
+ * is recorded in History.db).
+ * ------------------------------------------------------------------- */
+function buildVisitIndex() {
+  state.visitIndex = new Map();
+  for (const r of state.history) {
+    if (r.chainKey) state.visitIndex.set(r.chainKey, r);
+  }
+}
+
+function getNavigationChain(record, maxHops) {
+  if (!record.chainKey) return null;
+  const limit = maxHops || 25;
+  const chain = [record];
+  const seen = new Set([record.chainKey]);
+  let cur = record;
+  while (cur.chainFromKey && chain.length < limit) {
+    const prev = state.visitIndex.get(cur.chainFromKey);
+    if (!prev || seen.has(prev.chainKey)) break;
+    chain.unshift(prev);
+    seen.add(prev.chainKey);
+    cur = prev;
+  }
+  return chain;
+}
+
+function renderChainSteps(chain) {
+  return '<ol class="chain-list">' + chain.map((r, i) => {
+    const isCurrent = i === chain.length - 1;
+    return `
+      <li class="${isCurrent ? 'chain-current' : ''}">
+        <div class="chain-time">${fmtTime(r.visitTime)}${isCurrent ? ' — this page' : ''}</div>
+        <div class="chain-title">${esc(r.title) || '(no title)'}</div>
+        <div class="chain-url">${esc(displayUrl(r.url))}</div>
+        <div class="chain-transition">${esc(r.transition) || '—'}</div>
+      </li>`;
+  }).join('') + '</ol>';
+}
+
+function showNavigationChainModal(record) {
+  const overlay = document.getElementById('chainModalOverlay');
+  const body = document.getElementById('chainModalBody');
+  if (!record.chainKey) {
+    body.innerHTML = `<p class="hint">Navigation-chain data isn't available for ${esc(browserLabel(record.browserType))} history — only Chromium and Firefox record which visit a page came from.</p>`;
+  } else {
+    const chain = getNavigationChain(record);
+    if (chain.length <= 1) {
+      body.innerHTML = `<p class="hint">No referring page found in the loaded history — this looks like a direct navigation (typed URL, bookmark, new tab), or the referring visit has aged out.</p>${renderChainSteps(chain)}`;
+    } else {
+      body.innerHTML = `<p class="hint">${chain.length} steps, oldest first — the highlighted entry is the page you clicked.</p>${renderChainSteps(chain)}`;
+    }
+  }
+  overlay.hidden = false;
+}
+function hideNavigationChainModal() {
+  document.getElementById('chainModalOverlay').hidden = true;
 }
 
 /* ---------------------------------------------------------------------
@@ -1166,14 +1379,14 @@ function exportCsv() {
     rows = state.filtered.downloads;
     headers = [`start_time_${tzSlug}`, `end_time_${tzSlug}`, 'file_name', 'target_path', 'url', 'referrer', 'total_bytes', 'state', 'mime_type', 'danger_flag', 'opened_by_user', `last_opened_${tzSlug}`, 'flags', 'browser', 'source_file'];
     mapper = (r) => [
-      fmtTime(r.startTime), fmtTime(r.endTime), r.fileName, r.targetPath, r.url, r.referrer, r.totalBytes, r.state, r.mimeType, r.dangerType,
+      fmtTime(r.startTime), fmtTime(r.endTime), r.fileName, r.targetPath, displayUrl(r.url), displayUrl(r.referrer), r.totalBytes, r.state, r.mimeType, r.dangerType,
       r.opened === null || r.opened === undefined ? '' : (r.opened ? 'Yes' : 'No'), fmtTime(r.lastAccessTime), flagsCsv(r),
       browserLabel(r.browserType), r.source,
     ];
   } else {
     rows = state.filtered.history;
     headers = [`visit_time_${tzSlug}`, 'title', 'url', 'visit_count', 'transition', 'flags', 'browser', 'source_file'];
-    mapper = (r) => [fmtTime(r.visitTime), r.title, r.url, r.visitCount, r.transition, flagsCsv(r), browserLabel(r.browserType), r.source];
+    mapper = (r) => [fmtTime(r.visitTime), r.title, displayUrl(r.url), r.visitCount, r.transition, flagsCsv(r), browserLabel(r.browserType), r.source];
   }
   const lines = [headers.join(',')];
   for (const r of rows) lines.push(mapper(r).map(csvEscape).join(','));
@@ -1228,13 +1441,83 @@ document.getElementById('applyRangeBtn').addEventListener('click', () => {
   applyFiltersAndRender();
 });
 
+/* ---------------------------------------------------------------------
+ * Settings persistence — theme, timezone, page size, and the IOC/keyword
+ * watchlists are remembered locally (localStorage) between visits.
+ * Deliberately NOT persisted: any loaded browser history/downloads data,
+ * or current search/filter/sort state — a forensics tool shouldn't leave
+ * a case's browsing history sitting in its own browser storage.
+ * ------------------------------------------------------------------- */
+function saveSetting(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* localStorage unavailable (e.g. private mode) */ }
+}
+function loadSetting(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function clearSetting(key) {
+  try { localStorage.removeItem(key); } catch (e) { /* localStorage unavailable */ }
+}
+
+function flashSaved(btn, label) {
+  if (btn.dataset.flashing) return;
+  btn.dataset.flashing = '1';
+  const original = btn.textContent;
+  btn.textContent = label || 'Saved ✓';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.disabled = false;
+    delete btn.dataset.flashing;
+  }, 1200);
+}
+
 document.getElementById('tzSelect').addEventListener('change', (e) => {
   state.displayTz = e.target.value;
+  saveSetting('browserTriageTz', state.displayTz);
   updateTzLabels();
   applyFiltersAndRender();
 });
 populateTzSelect();
+const savedTz = loadSetting('browserTriageTz');
+if (savedTz && [...document.getElementById('tzSelect').options].some((o) => o.value === savedTz)) {
+  state.displayTz = savedTz;
+  document.getElementById('tzSelect').value = savedTz;
+}
 updateTzLabels();
+
+function initTheme() {
+  const sel = document.getElementById('themeSelect');
+  const saved = loadSetting('browserTriageTheme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  sel.value = saved;
+  sel.addEventListener('change', () => {
+    document.documentElement.setAttribute('data-theme', sel.value);
+    saveSetting('browserTriageTheme', sel.value);
+  });
+}
+initTheme();
+
+(function initPageSize() {
+  const sel = document.getElementById('pageSizeSelect');
+  const saved = parseInt(loadSetting('browserTriagePageSize'), 10);
+  if ([100, 250, 500, 1000].includes(saved)) {
+    state.pageSize = saved;
+    sel.value = String(saved);
+  }
+})();
+
+(function initWatchlists() {
+  const savedIoc = loadSetting('browserTriageIoc');
+  if (savedIoc) {
+    document.getElementById('iocTextarea').value = savedIoc;
+    applyIocList(savedIoc);
+  }
+  const savedKeywords = loadSetting('browserTriageKeywords');
+  if (savedKeywords) {
+    document.getElementById('keywordTextarea').value = savedKeywords;
+    applyKeywordList(savedKeywords);
+  }
+})();
 
 document.getElementById('searchInput').addEventListener('input', debounce(applyFiltersAndRender, 150));
 document.getElementById('sourceFilter').addEventListener('change', applyFiltersAndRender);
@@ -1242,6 +1525,48 @@ document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
 document.getElementById('flaggedOnlyToggle').addEventListener('change', (e) => {
   state.flaggedOnly = e.target.checked;
   applyFiltersAndRender();
+});
+
+document.getElementById('historyBody').addEventListener('click', (e) => {
+  const cell = e.target.closest('.url-clickable');
+  if (!cell) return;
+  const record = state.history.find((r) => r.id === cell.dataset.recordId);
+  if (record) showNavigationChainModal(record);
+});
+document.getElementById('chainModalClose').addEventListener('click', hideNavigationChainModal);
+document.getElementById('chainModalOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'chainModalOverlay') hideNavigationChainModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('chainModalOverlay').hidden) hideNavigationChainModal();
+});
+
+document.getElementById('defangToggle').addEventListener('change', (e) => {
+  state.defangUrls = e.target.checked;
+  saveSetting('browserTriageDefang', state.defangUrls ? '1' : '0');
+  renderHistory();
+  renderDownloads();
+});
+(function initDefangToggle() {
+  const saved = loadSetting('browserTriageDefang');
+  if (saved !== null) {
+    state.defangUrls = saved === '1';
+    document.getElementById('defangToggle').checked = state.defangUrls;
+  }
+})();
+
+document.getElementById('historyPrevBtn').addEventListener('click', () => goToPage('history', state.page.history - 1));
+document.getElementById('historyNextBtn').addEventListener('click', () => goToPage('history', state.page.history + 1));
+document.getElementById('downloadsPrevBtn').addEventListener('click', () => goToPage('downloads', state.page.downloads - 1));
+document.getElementById('downloadsNextBtn').addEventListener('click', () => goToPage('downloads', state.page.downloads + 1));
+
+document.getElementById('pageSizeSelect').addEventListener('change', (e) => {
+  state.pageSize = parseInt(e.target.value, 10);
+  state.page.history = 1;
+  state.page.downloads = 1;
+  saveSetting('browserTriagePageSize', String(state.pageSize));
+  renderHistory();
+  renderDownloads();
 });
 
 function applyIocList(text) {
@@ -1270,9 +1595,14 @@ document.getElementById('iocFileInput').addEventListener('change', async (e) => 
 document.getElementById('iocApplyBtn').addEventListener('click', () => {
   applyIocList(document.getElementById('iocTextarea').value);
 });
+document.getElementById('iocSaveBtn').addEventListener('click', (e) => {
+  saveSetting('browserTriageIoc', document.getElementById('iocTextarea').value);
+  flashSaved(e.currentTarget);
+});
 document.getElementById('iocClearBtn').addEventListener('click', () => {
   document.getElementById('iocTextarea').value = '';
   applyIocList('');
+  clearSetting('browserTriageIoc');
 });
 
 function applyKeywordList(text) {
@@ -1298,9 +1628,14 @@ document.getElementById('keywordFileInput').addEventListener('change', async (e)
 document.getElementById('keywordApplyBtn').addEventListener('click', () => {
   applyKeywordList(document.getElementById('keywordTextarea').value);
 });
+document.getElementById('keywordSaveBtn').addEventListener('click', (e) => {
+  saveSetting('browserTriageKeywords', document.getElementById('keywordTextarea').value);
+  flashSaved(e.currentTarget);
+});
 document.getElementById('keywordClearBtn').addEventListener('click', () => {
   document.getElementById('keywordTextarea').value = '';
   applyKeywordList('');
+  clearSetting('browserTriageKeywords');
 });
 
 document.getElementById('clearBtn').addEventListener('click', () => {
@@ -1311,6 +1646,8 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   state.filtered = { history: [], downloads: [] };
   state.range = { from: null, to: null };
   state.flaggedOnly = false;
+  state.page = { history: 1, downloads: 1 };
+  state.visitIndex = new Map();
   document.getElementById('quickRange').value = 'all';
   document.getElementById('customRangeGroup').hidden = true;
   document.getElementById('searchInput').value = '';
@@ -1338,6 +1675,7 @@ function toggleSort(tab, th, tableSel) {
   else { cur.key = key; cur.dir = 'asc'; }
   document.querySelectorAll(`${tableSel} th`).forEach((h) => h.classList.remove('sorted-asc', 'sorted-desc'));
   th.classList.add(cur.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+  state.page[tab] = 1;
   sortData(tab);
   if (tab === 'history') renderHistory();
   else renderDownloads();

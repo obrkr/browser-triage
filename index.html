@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Browser Triage — History &amp; Downloads Forensics</title>
 <link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('browserTriageTheme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* localStorage unavailable (e.g. private mode) — default theme applies */ }
+})();
+</script>
 </head>
 <body>
 <header class="app-header">
@@ -15,8 +23,33 @@
       <p class="subtitle">Browser history &amp; download artifact viewer — timestamps normalized to UTC internally, displayed in your chosen timezone</p>
     </div>
   </div>
-  <div class="header-status" id="headerStatus">
-    <span class="pill pill-muted">No file loaded</span>
+  <div class="header-right">
+    <select id="themeSelect" aria-label="Color theme">
+      <optgroup label="Default">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </optgroup>
+      <optgroup label="Claude">
+        <option value="claude">Claude Light</option>
+        <option value="claude-dark">Claude Dark</option>
+      </optgroup>
+      <optgroup label="Popular">
+        <option value="nord">Nord</option>
+        <option value="dracula">Dracula</option>
+        <option value="monokai">Monokai</option>
+        <option value="onedark">One Dark</option>
+        <option value="gruvbox">Gruvbox Dark</option>
+        <option value="catppuccin">Catppuccin Mocha</option>
+        <option value="github-dark">GitHub Dark</option>
+      </optgroup>
+      <optgroup label="Solarized">
+        <option value="solarized-dark">Solarized Dark</option>
+        <option value="solarized-light">Solarized Light</option>
+      </optgroup>
+    </select>
+    <div class="header-status" id="headerStatus">
+      <span class="pill pill-muted">No file loaded</span>
+    </div>
   </div>
 </header>
 
@@ -56,6 +89,7 @@
             <input type="file" id="iocFileInput" accept=".txt,.csv" hidden>
             <button class="btn btn-small" id="iocFileBtn" type="button">Load from file</button>
             <button class="btn btn-small btn-primary" id="iocApplyBtn" type="button">Apply</button>
+            <button class="btn btn-small" id="iocSaveBtn" type="button">Save for next time</button>
             <button class="btn btn-small btn-danger-outline" id="iocClearBtn" type="button">Clear</button>
             <span class="pill" id="iocCountPill">0 indicators loaded</span>
           </div>
@@ -68,6 +102,7 @@
             <input type="file" id="keywordFileInput" accept=".txt,.csv" hidden>
             <button class="btn btn-small" id="keywordFileBtn" type="button">Load from file</button>
             <button class="btn btn-small btn-primary" id="keywordApplyBtn" type="button">Apply</button>
+            <button class="btn btn-small" id="keywordSaveBtn" type="button">Save for next time</button>
             <button class="btn btn-small btn-danger-outline" id="keywordClearBtn" type="button">Clear</button>
             <span class="pill" id="keywordCountPill">0 keywords loaded</span>
           </div>
@@ -115,6 +150,19 @@
       <label for="flaggedOnlyToggle">Flags</label>
       <label class="checkbox-inline"><input type="checkbox" id="flaggedOnlyToggle"> Flagged rows only</label>
     </div>
+    <div class="control-group">
+      <label for="defangToggle">URLs</label>
+      <label class="checkbox-inline"><input type="checkbox" id="defangToggle" checked> Defang URLs</label>
+    </div>
+    <div class="control-group">
+      <label for="pageSizeSelect">Rows per page</label>
+      <select id="pageSizeSelect">
+        <option value="100">100</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+      </select>
+    </div>
     <div class="control-group align-end">
       <button class="btn" id="exportCsvBtn" type="button">Export CSV</button>
       <button class="btn btn-danger-outline" id="clearBtn" type="button">Clear all</button>
@@ -148,7 +196,14 @@
         <tbody id="historyBody"></tbody>
       </table>
     </div>
-    <p class="row-count" id="historyCount"></p>
+    <div class="pagination-bar">
+      <p class="row-count" id="historyCount"></p>
+      <div class="pagination-controls">
+        <button class="btn btn-small" id="historyPrevBtn" type="button">‹ Prev</button>
+        <span id="historyPageIndicator" class="page-indicator"></span>
+        <button class="btn btn-small" id="historyNextBtn" type="button">Next ›</button>
+      </div>
+    </div>
   </section>
 
   <section class="tab-panel" id="panel-downloads">
@@ -176,11 +231,22 @@
         <tbody id="downloadsBody"></tbody>
       </table>
     </div>
-    <p class="row-count" id="downloadsCount"></p>
+    <div class="pagination-bar">
+      <p class="row-count" id="downloadsCount"></p>
+      <div class="pagination-controls">
+        <button class="btn btn-small" id="downloadsPrevBtn" type="button">‹ Prev</button>
+        <span id="downloadsPageIndicator" class="page-indicator"></span>
+        <button class="btn btn-small" id="downloadsNextBtn" type="button">Next ›</button>
+      </div>
+    </div>
   </section>
 
   <section class="tab-panel" id="panel-summary">
     <div class="summary-grid" id="summaryGrid"></div>
+    <div class="summary-histogram">
+      <h3>Activity over time</h3>
+      <div id="histogramContainer"></div>
+    </div>
     <div class="summary-files">
       <h3>Loaded files</h3>
       <table id="filesTable">
@@ -205,6 +271,16 @@
 <footer class="app-footer">
   <p>Runs entirely client-side. Timestamps are converted from each browser's native epoch to UTC using standard offsets (Chrome/WebKit: microseconds since 1601-01-01 UTC · Firefox: microseconds since 1970-01-01 UTC · Safari: seconds since 2001-01-01 UTC), then rendered in the "Display timezone" selected above. UTC is recommended when reporting findings.</p>
 </footer>
+
+<div id="chainModalOverlay" class="modal-overlay" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="chainModalTitle">
+    <div class="modal-header">
+      <h3 id="chainModalTitle">Navigation chain</h3>
+      <button id="chainModalClose" class="btn btn-small" type="button">Close</button>
+    </div>
+    <div id="chainModalBody" class="modal-body"></div>
+  </div>
+</div>
 
 <script src="vendor/sql-wasm.js"></script>
 <script src="app.js"></script>
