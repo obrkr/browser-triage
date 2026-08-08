@@ -1,6 +1,14 @@
 # Browser Triage
 
+![Vibe Coded](https://img.shields.io/badge/vibe-coded-ff5fa8?style=for-the-badge)
+![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-8a5cf6?style=for-the-badge)
+![Offline First](https://img.shields.io/badge/offline-first-2ea44f?style=for-the-badge)
+![No Build Step](https://img.shields.io/badge/build%20step-none-3b82f6?style=for-the-badge)
+![13 Themes](https://img.shields.io/badge/themes-13-f59e0b?style=for-the-badge)
+
 A single-page, fully client-side browser forensics tool. Load a browser's history and downloads database directly, and get a normalized, searchable, UTC-first timeline — with automatic flagging of suspicious domains and downloads. Nothing ever leaves your machine.
+
+> **This project is fully vibe coded.** Every feature here — the SQLite/plist parsers, the heuristics, all 13 themes — was built through conversational, AI-assisted development rather than a traditional planned build. Each feature was verified along the way with real automated runs against synthetic test data (not just eyeballed), but there's no substitute for reading the code yourself before relying on it for anything that matters, forensic tooling very much included.
 
 ![Browsing history with suspicious-domain flags](docs/screenshot-history.png)
 
