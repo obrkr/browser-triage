@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>DownloadHistory</key>
+	<array>
+		<dict>
+			<key>DownloadEntryURL</key>
+			<string>https://www.apple.com/downloads/macos-update.pkg</string>
+			<key>DownloadEntryPath</key>
+			<string>/Users/analyst/Downloads/macos-update.pkg</string>
+			<key>DownloadEntryOriginURL</key>
+			<string>https://www.apple.com/mac/</string>
+			<key>DownloadEntryDateAddedKey</key>
+			<date>2026-08-04T07:59:00Z</date>
+			<key>DownloadEntryDateFinishedKey</key><date>2026-08-04T08:02:00Z</date>
+			<key>DownloadEntryProgressBytesSoFar</key>
+			<integer>482344960</integer>
+			<key>DownloadEntryProgressTotalToLoad</key>
+			<integer>482344960</integer>
+		</dict>
+		<dict>
+			<key>DownloadEntryURL</key>
+			<string>http://phishing-kit.tk/files/icloud_verify_tool.scr</string>
+			<key>DownloadEntryPath</key>
+			<string>/Users/analyst/Downloads/icloud_verify_tool.scr</string>
+			<key>DownloadEntryOriginURL</key>
+			<string>http://phishing-kit.tk/verify-icloud</string>
+			<key>DownloadEntryDateAddedKey</key>
+			<date>2026-08-04T21:11:00Z</date>
+			<key>DownloadEntryDateFinishedKey</key><date>2026-08-04T21:13:00Z</date>
+			<key>DownloadEntryProgressBytesSoFar</key>
+			<integer>61440</integer>
+			<key>DownloadEntryProgressTotalToLoad</key>
+			<integer>61440</integer>
+		</dict>
+		<dict>
+			<key>DownloadEntryURL</key>
+			<string>https://xn--80ak6aa92e.com/tools/session_helper.dmg</string>
+			<key>DownloadEntryPath</key>
+			<string>/Users/analyst/Downloads/session_helper.dmg</string>
+			<key>DownloadEntryOriginURL</key>
+			<string>https://xn--80ak6aa92e.com/login</string>
+			<key>DownloadEntryDateAddedKey</key>
+			<date>2026-08-08T05:59:00Z</date>
+			
+			<key>DownloadEntryProgressBytesSoFar</key>
+			<integer>1024000</integer>
+			<key>DownloadEntryProgressTotalToLoad</key>
+			<integer>8388608</integer>
+		</dict>
+	</array>
+</dict>
+</plist>

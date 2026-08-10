@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Title</key>
+	<string>com.apple.ReadingList</string>
+	<key>WebBookmarkType</key>
+	<string>WebBookmarkTypeList</string>
+	<key>Children</key>
+	<array>
+		<dict>
+			<key>Title</key>
+			<string>BookmarksBar</string>
+			<key>WebBookmarkType</key>
+			<string>WebBookmarkTypeList</string>
+			<key>Children</key>
+			<array>
+				<dict>
+					<key>Title</key>
+					<string>Work</string>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeList</string>
+					<key>Children</key>
+					<array>
+						<dict>
+							<key>URLString</key>
+							<string>https://www.apple.com/mac/</string>
+							<key>WebBookmarkType</key>
+							<string>WebBookmarkTypeLeaf</string>
+							<key>URIDictionary</key>
+							<dict>
+								<key>title</key>
+								<string>Mac - Apple</string>
+							</dict>
+						</dict>
+						<dict>
+							<key>URLString</key>
+							<string>http://phishing-kit.tk/verify-icloud</string>
+							<key>WebBookmarkType</key>
+							<string>WebBookmarkTypeLeaf</string>
+							<key>URIDictionary</key>
+							<dict>
+								<key>title</key>
+								<string>Verify Your iCloud Account (saved by mistake)</string>
+							</dict>
+						</dict>
+					</array>
+				</dict>
+				<dict>
+					<key>URLString</key>
+					<string>https://news.ycombinator.com/</string>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeLeaf</string>
+					<key>URIDictionary</key>
+					<dict>
+						<key>title</key>
+						<string>Hacker News</string>
+					</dict>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

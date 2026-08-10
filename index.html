@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser Triage — History &amp; Downloads Forensics</title>
+<link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('browserTriageTheme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* localStorage unavailable (e.g. private mode) — default theme applies */ }
+})();
+</script>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark">◎</span>
+    <div>
+      <h1>Browser Triage</h1>
+      <p class="subtitle">Browser history &amp; download artifact viewer — timestamps normalized to UTC internally, displayed in your chosen timezone</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <select id="themeSelect" aria-label="Color theme">
+      <optgroup label="Default">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </optgroup>
+      <optgroup label="Claude">
+        <option value="claude">Claude Light</option>
+        <option value="claude-dark">Claude Dark</option>
+      </optgroup>
+      <optgroup label="Popular">
+        <option value="nord">Nord</option>
+        <option value="dracula">Dracula</option>
+        <option value="monokai">Monokai</option>
+        <option value="onedark">One Dark</option>
+        <option value="gruvbox">Gruvbox Dark</option>
+        <option value="catppuccin">Catppuccin Mocha</option>
+        <option value="github-dark">GitHub Dark</option>
+      </optgroup>
+      <optgroup label="Solarized">
+        <option value="solarized-dark">Solarized Dark</option>
+        <option value="solarized-light">Solarized Light</option>
+      </optgroup>
+    </select>
+    <div class="header-status" id="headerStatus">
+      <span class="pill pill-muted">No file loaded</span>
+    </div>
+  </div>
+</header>
+
+<section class="load-panel">
+  <div class="load-box" id="dropZone">
+    <input type="file" id="fileInput" accept=".sqlite,.db,.plist,*" hidden multiple>
+    <div class="load-box-inner">
+      <p><strong>Load browser history / download files</strong></p>
+      <p class="hint">
+        Chrome / Edge / Brave / Opera: <code>History</code>, <code>Bookmarks</code> &nbsp;•&nbsp;
+        Firefox: <code>places.sqlite</code> &nbsp;•&nbsp;
+        Safari history: <code>History.db</code> &nbsp;•&nbsp;
+        Safari downloads: <code>Downloads.plist</code> &nbsp;•&nbsp;
+        Safari bookmarks: <code>Bookmarks.plist</code>
+      </p>
+      <p class="hint">Drag &amp; drop file(s) here, or click to browse. Multiple profiles can be loaded and merged. Everything is parsed locally in your browser — nothing is uploaded.</p>
+      <button class="btn btn-primary" id="browseBtn" type="button">Choose file(s)</button>
+    </div>
+  </div>
+  <div id="loadLog" class="load-log"></div>
+</section>
+
+<section class="ioc-panel">
+  <details id="iocDetails">
+    <summary>Flag suspicious domains &amp; keywords (optional)</summary>
+    <div class="ioc-body">
+      <p class="hint">
+        Built-in heuristics automatically flag suspicious/high-abuse TLDs, IP-literal URLs, punycode/IDN domains,
+        URL shorteners, and dangerous or disguised download file types (e.g. <code>invoice.pdf.exe</code>) —
+        no setup needed. Everything below is matched entirely locally; nothing you paste or upload ever leaves your browser.
+      </p>
+      <div class="ioc-columns">
+        <div class="ioc-col">
+          <label class="ioc-col-label" for="iocTextarea">Domains / IPs (IOC list)</label>
+          <p class="hint">Cross-referenced against URL hostnames — one per line. Matches subdomains too (an entry for <code>evil.com</code> also catches <code>sub.evil.com</code>).</p>
+          <textarea id="iocTextarea" rows="4" placeholder="evil-domain.com&#10;185.220.101.5&#10;phishing-kit.tk"></textarea>
+          <div class="ioc-controls">
+            <input type="file" id="iocFileInput" accept=".txt,.csv" hidden>
+            <button class="btn btn-small" id="iocFileBtn" type="button">Load from file</button>
+            <button class="btn btn-small btn-primary" id="iocApplyBtn" type="button">Apply</button>
+            <button class="btn btn-small" id="iocSaveBtn" type="button">Save for next time</button>
+            <button class="btn btn-small btn-danger-outline" id="iocClearBtn" type="button">Clear</button>
+            <span class="pill" id="iocCountPill">0 indicators loaded</span>
+          </div>
+        </div>
+        <div class="ioc-col">
+          <label class="ioc-col-label" for="keywordTextarea">Keywords (titles / URLs / filenames)</label>
+          <p class="hint">Free-text substring matches against page titles, URLs, and download names/paths — one per line. Noisier than domain matches, so shown as a distinct flag color.</p>
+          <textarea id="keywordTextarea" rows="4" placeholder="wire transfer&#10;invoice&#10;confidential&#10;password reset"></textarea>
+          <div class="ioc-controls">
+            <input type="file" id="keywordFileInput" accept=".txt,.csv" hidden>
+            <button class="btn btn-small" id="keywordFileBtn" type="button">Load from file</button>
+            <button class="btn btn-small btn-primary" id="keywordApplyBtn" type="button">Apply</button>
+            <button class="btn btn-small" id="keywordSaveBtn" type="button">Save for next time</button>
+            <button class="btn btn-small btn-danger-outline" id="keywordClearBtn" type="button">Clear</button>
+            <span class="pill" id="keywordCountPill">0 keywords loaded</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </details>
+</section>
+
+<section class="controls-panel" id="controlsPanel" hidden>
+  <div class="controls-row">
+    <div class="control-group">
+      <label for="tzSelect">Display timezone</label>
+      <select id="tzSelect"></select>
+    </div>
+    <div class="control-group">
+      <label for="quickRange" id="quickRangeLabel">Time range (UTC)</label>
+      <select id="quickRange">
+        <option value="all">All time</option>
+        <option value="1h">Last 1 hour</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+        <option value="custom">Custom range…</option>
+      </select>
+    </div>
+    <div class="control-group custom-range" id="customRangeGroup" hidden>
+      <label for="fromInput" id="fromLabel">From (UTC)</label>
+      <input type="datetime-local" id="fromInput" step="1">
+      <label for="toInput" id="toLabel">To (UTC)</label>
+      <input type="datetime-local" id="toInput" step="1">
+      <button class="btn btn-small" id="applyRangeBtn" type="button">Apply</button>
+    </div>
+    <div class="control-group search-group">
+      <label for="searchInput">Filter (URL / title / path / search term)</label>
+      <input type="search" id="searchInput" placeholder="e.g. paypal, .exe, drive.google.com">
+    </div>
+    <div class="control-group">
+      <label for="sourceFilter">Source</label>
+      <select id="sourceFilter">
+        <option value="all">All loaded files</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="flaggedOnlyToggle">Flags</label>
+      <label class="checkbox-inline"><input type="checkbox" id="flaggedOnlyToggle"> Flagged rows only</label>
+    </div>
+    <div class="control-group">
+      <label for="defangToggle">URLs</label>
+      <label class="checkbox-inline"><input type="checkbox" id="defangToggle" checked> Defang URLs</label>
+    </div>
+    <div class="control-group">
+      <label for="pageSizeSelect">Rows per page</label>
+      <select id="pageSizeSelect">
+        <option value="100">100</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+      </select>
+    </div>
+    <div class="control-group align-end">
+      <button class="btn" id="exportCsvBtn" type="button">Export CSV</button>
+      <button class="btn btn-danger-outline" id="clearBtn" type="button">Clear all</button>
+    </div>
+  </div>
+</section>
+
+<nav class="tabs" id="tabs" hidden>
+  <button class="tab-btn active" data-tab="history">Browsing History</button>
+  <button class="tab-btn" data-tab="downloads">Downloads</button>
+  <button class="tab-btn" data-tab="bookmarks">Bookmarks</button>
+  <button class="tab-btn" data-tab="summary">Summary</button>
+</nav>
+
+<main id="mainContent" hidden>
+
+  <section class="tab-panel active" id="panel-history">
+    <div class="table-wrap">
+      <table id="historyTable">
+        <thead>
+          <tr>
+            <th data-sort="visitTime" class="sortable sorted-desc" id="thVisitTime">Visit Time (UTC)</th>
+            <th data-sort="title" class="sortable">Title</th>
+            <th data-sort="url" class="sortable">URL</th>
+            <th data-sort="searchTerm" class="sortable">Search Term</th>
+            <th data-sort="visitCount" class="sortable">Visits</th>
+            <th data-sort="transition" class="sortable">Transition</th>
+            <th data-sort="flagCount" class="sortable">Flags</th>
+            <th data-sort="browserType" class="sortable">Browser</th>
+            <th data-sort="source" class="sortable">Source File</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <div class="pagination-bar">
+      <p class="row-count" id="historyCount"></p>
+      <div class="pagination-controls">
+        <button class="btn btn-small" id="historyPrevBtn" type="button">‹ Prev</button>
+        <span id="historyPageIndicator" class="page-indicator"></span>
+        <button class="btn btn-small" id="historyNextBtn" type="button">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-downloads">
+    <div class="table-wrap">
+      <table id="downloadsTable">
+        <thead>
+          <tr>
+            <th data-sort="startTime" class="sortable sorted-desc" id="thStartTime">Start Time (UTC)</th>
+            <th data-sort="endTime" class="sortable" id="thEndTime">End Time (UTC)</th>
+            <th data-sort="fileName" class="sortable">File Name</th>
+            <th data-sort="targetPath" class="sortable">Target Path</th>
+            <th data-sort="url" class="sortable">Source URL</th>
+            <th data-sort="referrer" class="sortable">Referrer</th>
+            <th data-sort="totalBytes" class="sortable">Size</th>
+            <th data-sort="state" class="sortable">State</th>
+            <th data-sort="mimeType" class="sortable">MIME Type</th>
+            <th data-sort="dangerType" class="sortable">Danger Flag</th>
+            <th data-sort="opened" class="sortable">Opened by user?</th>
+            <th data-sort="lastAccessTime" class="sortable" id="thLastAccess">Last Opened (UTC)</th>
+            <th data-sort="flagCount" class="sortable">Flags</th>
+            <th data-sort="browserType" class="sortable">Browser</th>
+            <th data-sort="source" class="sortable">Source File</th>
+          </tr>
+        </thead>
+        <tbody id="downloadsBody"></tbody>
+      </table>
+    </div>
+    <div class="pagination-bar">
+      <p class="row-count" id="downloadsCount"></p>
+      <div class="pagination-controls">
+        <button class="btn btn-small" id="downloadsPrevBtn" type="button">‹ Prev</button>
+        <span id="downloadsPageIndicator" class="page-indicator"></span>
+        <button class="btn btn-small" id="downloadsNextBtn" type="button">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-bookmarks">
+    <div class="table-wrap">
+      <table id="bookmarksTable">
+        <thead>
+          <tr>
+            <th data-sort="dateAdded" class="sortable sorted-desc" id="thBookmarkDateAdded">Date Added (UTC)</th>
+            <th data-sort="title" class="sortable">Title</th>
+            <th data-sort="url" class="sortable">URL</th>
+            <th data-sort="folder" class="sortable">Folder</th>
+            <th data-sort="flagCount" class="sortable">Flags</th>
+            <th data-sort="browserType" class="sortable">Browser</th>
+            <th data-sort="source" class="sortable">Source File</th>
+          </tr>
+        </thead>
+        <tbody id="bookmarksBody"></tbody>
+      </table>
+    </div>
+    <div class="pagination-bar">
+      <p class="row-count" id="bookmarksCount"></p>
+      <div class="pagination-controls">
+        <button class="btn btn-small" id="bookmarksPrevBtn" type="button">‹ Prev</button>
+        <span id="bookmarksPageIndicator" class="page-indicator"></span>
+        <button class="btn btn-small" id="bookmarksNextBtn" type="button">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="panel-summary">
+    <div class="summary-grid" id="summaryGrid"></div>
+    <div class="summary-histogram">
+      <h3>Activity over time</h3>
+      <div id="histogramContainer"></div>
+    </div>
+    <div class="summary-files">
+      <h3>Loaded files</h3>
+      <table id="filesTable">
+        <thead>
+          <tr>
+            <th>File name</th>
+            <th>Detected browser</th>
+            <th>SHA-256</th>
+            <th>History rows</th>
+            <th>Download rows</th>
+            <th>Bookmark rows</th>
+            <th id="thFilesEarliest">Earliest activity (UTC)</th>
+            <th id="thFilesLatest">Latest activity (UTC)</th>
+          </tr>
+        </thead>
+        <tbody id="filesBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>Runs entirely client-side. Timestamps are converted from each browser's native epoch to UTC using standard offsets (Chrome/WebKit: microseconds since 1601-01-01 UTC · Firefox: microseconds since 1970-01-01 UTC · Safari: seconds since 2001-01-01 UTC), then rendered in the "Display timezone" selected above. UTC is recommended when reporting findings.</p>
+</footer>
+
+<div id="chainModalOverlay" class="modal-overlay" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="chainModalTitle">
+    <div class="modal-header">
+      <h3 id="chainModalTitle">Navigation chain</h3>
+      <button id="chainModalClose" class="btn btn-small" type="button">Close</button>
+    </div>
+    <div id="chainModalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="vendor/sql-wasm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

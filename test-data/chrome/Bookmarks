@@ -1,0 +1,72 @@
+{
+  "checksum": "testchecksum",
+  "version": 1,
+  "roots": {
+    "bookmark_bar": {
+      "id": "1",
+      "name": "Bookmarks bar",
+      "type": "folder",
+      "date_added": "13428158400000000",
+      "children": [
+        {
+          "id": "2",
+          "name": "Work",
+          "type": "folder",
+          "date_added": "13428244800000000",
+          "children": [
+            {
+              "id": "3",
+              "name": "Example Mail",
+              "type": "url",
+              "url": "https://mail.example.com/inbox",
+              "date_added": "13428331200000000"
+            },
+            {
+              "id": "4",
+              "name": "Quarterly Reports",
+              "type": "url",
+              "url": "https://support.example.com/articles/disk-cleanup",
+              "date_added": "13429022400000000"
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "name": "Free Invoice Tool (unverified)",
+          "type": "url",
+          "url": "https://free-invoice-tool.tk/download",
+          "date_added": "13430329200000000"
+        }
+      ]
+    },
+    "other": {
+      "id": "6",
+      "name": "Other bookmarks",
+      "type": "folder",
+      "date_added": "13428158400000000",
+      "children": [
+        {
+          "id": "7",
+          "name": "Hacker News",
+          "type": "url",
+          "url": "https://news.ycombinator.com/",
+          "date_added": "13429886400000000"
+        },
+        {
+          "id": "8",
+          "name": "Wikipedia: Disk formatting",
+          "type": "url",
+          "url": "https://en.wikipedia.org/wiki/Disk_formatting",
+          "date_added": "13430577600000000"
+        }
+      ]
+    },
+    "synced": {
+      "id": "9",
+      "name": "Mobile bookmarks",
+      "type": "folder",
+      "date_added": "13428158400000000",
+      "children": []
+    }
+  }
+}
