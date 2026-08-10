@@ -1005,6 +1005,7 @@ const SUSPICIOUS_TLDS = new Set([
   'support', 'bid', 'loan', 'win', 'party', 'review', 'stream', 'gdn', 'men', 'date',
   'faith', 'science', 'accountant', 'download', 'zip', 'mov', 'country', 'kim', 'cricket',
   'cc', 'ws', 'pw', 'buzz', 'rest', 'quest',
+  'beer', 'monster', 'xin', 'bond', 'sbs', 'qpon', 'rip',
 ]);
 const URL_SHORTENERS = new Set([
   'bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly', 'is.gd', 'buff.ly', 'rebrand.ly',
