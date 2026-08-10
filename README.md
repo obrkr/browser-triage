@@ -18,7 +18,7 @@ A single-page, fully client-side browser forensics tool. Load a browser's histor
 
 - [Features](#features)
 - [Quick start](#quick-start)
-- [Where to find the source files](#where-to-find-the-source-files)
+- [Test data](#test-data)
 - [Using the tool](#using-the-tool)
 - [Suspicious-domain flagging](#suspicious-domain-flagging)
 - [How timestamps work](#how-timestamps-work)
@@ -79,26 +79,7 @@ No installation, no accounts, no internet connection required after the initial 
 
 ---
 
-## Where to find the source files
-
-History and download data live in different files per browser/OS. The browser usually needs to be **closed** first (or the file copied elsewhere) since it's locked while running.
-
-| Browser | Platform | File to load |
-|---|---|---|
-| Chrome | Windows | `%LocalAppData%\Google\Chrome\User Data\Default\History` |
-| Chrome | macOS | `~/Library/Application Support/Google/Chrome/Default/History` |
-| Chrome | Linux | `~/.config/google-chrome/Default/History` |
-| Edge | Windows | `%LocalAppData%\Microsoft\Edge\User Data\Default\History` |
-| Brave | Windows | `%LocalAppData%\BraveSoftware\Brave-Browser\User Data\Default\History` |
-| Firefox | Windows | `%AppData%\Mozilla\Firefox\Profiles\<profile>\places.sqlite` |
-| Firefox | macOS | `~/Library/Application Support/Firefox/Profiles/<profile>/places.sqlite` |
-| Firefox | Linux | `~/.mozilla/firefox/<profile>/places.sqlite` |
-| Chrome / Edge / Brave (bookmarks) | all | `<same profile folder as History>\Bookmarks` |
-| Safari (history) | macOS | `~/Library/Safari/History.db` |
-| Safari (downloads) | macOS | `~/Library/Safari/Downloads.plist` |
-| Safari (bookmarks) | macOS | `~/Library/Safari/Bookmarks.plist` |
-
-Each Chromium `History` file already contains **both** browsing history and downloads — one file gets you both tabs; its `Bookmarks` file (same folder, no extension) is separate. Firefox's `places.sqlite` contains history, downloads, *and* bookmarks in one file. Safari splits all three across separate files; load whichever ones you need.
+## Test data
 
 Sample files for all three browsers — history, downloads, and bookmarks, with a mix of ordinary and deliberately-flaggable content — are in [`test-data/`](test-data/) if you want to try the tool without a real profile.
 
